@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Split Pay — app icon options</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #ECEBE7; color: #1c1c1a; font-family: system-ui, "Segoe UI", sans-serif; padding: 28px 24px 36px; }
+  h1 { font-size: 20px; font-weight: 600; }
+  p.lead { color: #5d5c57; font-size: 14px; margin: 4px 0 22px; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; }
+  .opt { flex: 0 0 calc((100% - 44px) / 3); background: #fff; border-radius: 16px; padding: 20px 14px 16px; text-align: center; }
+  .opt svg.big { width: 150px; height: 150px; border-radius: 34px; display: block; margin: 0 auto; }
+  .opt h2 { font-size: 15px; font-weight: 600; margin-top: 14px; }
+  .opt p { font-size: 12.5px; color: #5d5c57; margin-top: 4px; line-height: 1.45; min-height: 54px; }
+  .home { margin-top: 12px; background: #23262B; border-radius: 12px; padding: 12px 0 8px; color: #F4F5F2; font-family: "Space Grotesk", system-ui, sans-serif; font-size: 11px; }
+  .home svg { width: 52px; height: 52px; border-radius: 13px; display: block; margin: 0 auto 5px; }
+  .home small { display: block; color: #8B9096; font-size: 10px; margin-top: 6px; font-family: system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Split Pay — six app icon options</h1>
+<p class="lead">Each is shown large, and small as it would look on the phone's home screen.</p>
+<div class="row" id="row"></div>
+<script>
+const icons = [
+  { name: "1 — Split coin", text: "A coin cut in two, with the halves slid apart. Says “splitting money” at a glance.",
+    svg: `<rect width="120" height="120" fill="#0E0F11"/>
+          <g transform="rotate(-35 60 60)">
+            <path d="M24 55 A36 36 0 0 1 96 55 Z" fill="#C8F135" transform="translate(-7 0)"/>
+            <path d="M24 65 A36 36 0 0 0 96 65 Z" fill="#F4F5F2" transform="translate(7 0)"/>
+          </g>` },
+  { name: "2 — Divide", text: "The divide sign, bold and simple. The most recognisable at small size.",
+    svg: `<rect width="120" height="120" fill="#C8F135"/>
+          <circle cx="60" cy="31" r="11" fill="#0E0F11"/>
+          <rect x="22" y="52" width="76" height="16" rx="8" fill="#0E0F11"/>
+          <circle cx="60" cy="89" r="11" fill="#0E0F11"/>` },
+  { name: "3 — Shared", text: "Two circles overlapping; the shared part glows lime. Says “what we share”.",
+    svg: `<rect width="120" height="120" fill="#0E0F11"/>
+          <circle cx="46" cy="60" r="28" fill="none" stroke="#F4F5F2" stroke-width="6"/>
+          <circle cx="74" cy="60" r="28" fill="none" stroke="#F4F5F2" stroke-width="6"/>
+          <path d="M60 35.8 A28 28 0 0 1 60 84.2 A28 28 0 0 1 60 35.8 Z" fill="#C8F135"/>` },
+  { name: "4 — Cut S", text: "The letter S for Split, sliced by a diagonal cut. Works like a brand initial.",
+    svg: `<rect width="120" height="120" fill="#0E0F11"/>
+          <text x="60" y="90" text-anchor="middle" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="92" fill="#C8F135">S</text>
+          <line x1="22" y1="88" x2="98" y2="34" stroke="#0E0F11" stroke-width="9"/>` },
+  { name: "5 — Slice", text: "A pie with one slice pulled out in lime. Says “your share” in a friendly way.",
+    svg: `<rect width="120" height="120" fill="#0E0F11"/>
+          <path d="M54 66 L54 32 A34 34 0 1 0 88 66 Z" fill="#F4F5F2"/>
+          <path d="M54 66 L54 32 A34 34 0 0 1 88 66 Z" fill="#C8F135" transform="translate(9 -9)"/>` },
+  { name: "6 — Receipt", text: "A bill with a dashed line where it is split. Says “splitting the bill” directly.",
+    svg: `<rect width="120" height="120" fill="#C8F135"/>
+          <path d="M34 20 H86 V100 L77.3 93 L68.7 100 L60 93 L51.3 100 L42.7 93 L34 100 Z" fill="#0E0F11"/>
+          <rect x="44" y="33" width="32" height="6" rx="3" fill="#C8F135"/>
+          <rect x="44" y="46" width="22" height="6" rx="3" fill="#F4F5F2"/>
+          <line x1="34" y1="63" x2="86" y2="63" stroke="#C8F135" stroke-width="3" stroke-dasharray="5 4"/>
+          <rect x="44" y="73" width="32" height="6" rx="3" fill="#F4F5F2"/>` }
+];
+document.getElementById('row').innerHTML = icons.map(i => `
+  <div class="opt">
+    <svg class="big" viewBox="0 0 120 120">${i.svg}</svg>
+    <h2>${i.name}</h2><p>${i.text}</p>
+    <div class="home"><svg viewBox="0 0 120 120">${i.svg}</svg>Split Pay<small>on the home screen</small></div>
+  </div>`).join('');
+</script>
+</body>
+</html>

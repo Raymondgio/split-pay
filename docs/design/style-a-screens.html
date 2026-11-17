@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Split Pay — Style A screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #ECEBE7; color: #1c1c1a; font-family: system-ui, "Segoe UI", sans-serif; padding: 28px 16px 48px; }
+  .set { max-width: 700px; margin: 0 auto 40px; }
+  .set h2 { font-size: 18px; font-weight: 600; }
+  .set p { color: #5d5c57; font-size: 14px; margin: 4px 0 14px; line-height: 1.5; }
+  .pair { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+  .cap { text-align: center; font-size: 12px; color: #6f6e69; margin-top: 8px; }
+
+  .phone { --bg:#0E0F11; --surface:#1A1C20; --text:#F4F5F2; --muted:#8B9096; --line:#272A30; --accent:#C8F135; --on-accent:#0E0F11; --pos:#C8F135; --neg:#FF8A5B;
+           width: 320px; height: 720px; border-radius: 38px; border: 8px solid #111; overflow: hidden; position: relative;
+           background: var(--bg); color: var(--text); font-family: "Space Grotesk", system-ui, sans-serif; font-size: 13px; line-height: 1.35; }
+  .status { height: 30px; padding: 9px 20px 0; font-size: 11px; font-weight: 700; display: flex; justify-content: space-between; }
+  .body { padding: 6px 16px 0; }
+  .top { display: flex; align-items: center; justify-content: space-between; height: 40px; }
+  .top b { font-size: 16px; }
+  .top .act { color: var(--accent); font-weight: 700; font-size: 14px; }
+  .top svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .pos { color: var(--pos); } .neg { color: var(--neg); } .mut { color: var(--muted); }
+  .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin: 16px 0 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .chip.pri { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .with { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); }
+  .field { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .tile { width: 44px; height: 44px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; font-size: 20px; font-weight: 700; flex: none; }
+  .tile.cur { font-size: 13px; color: var(--accent); }
+  .field .v { font-size: 17px; font-weight: 500; }
+  .field .v.big { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; }
+  .sentence { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin: 22px 0 8px; font-size: 14px; }
+  .hint { text-align: center; color: var(--muted); font-size: 12px; }
+  .tools { display: flex; gap: 8px; margin-top: 22px; }
+  .tools .chip { flex: 1; justify-content: center; padding: 10px; border-radius: 10px; background: var(--surface); }
+  .btn { position: absolute; left: 16px; right: 16px; bottom: 22px; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 15px; text-align: center; padding: 14px; border-radius: 16px; }
+  .btn.ghost { background: none; color: var(--text); border: 1px solid var(--line); }
+  .seg { display: flex; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 3px; margin-top: 8px; }
+  .seg span { flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+  .seg span.on { background: var(--accent); color: var(--on-accent); }
+  .person { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #0E0F11; flex: none; }
+  .av.y { background: #C8F135; } .av.a { background: #8AB4FF; } .av.s { background: #FFB5D0; } .av.b { background: #FFD27A; } .av.m { background: #B9A6FF; }
+  .person .n { flex: 1; font-size: 14px; font-weight: 600; }
+  .person .n small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+  .person .amt { font-size: 13px; font-weight: 600; }
+  .check { width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+  .paidby { display: flex; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 8px; }
+  .card .head { display: flex; align-items: center; gap: 10px; }
+  .card .line { margin: 10px 0 8px 44px; font-size: 12.5px; }
+  .card .acts { margin-left: 44px; display: flex; gap: 6px; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .sw { width: 38px; height: 22px; border-radius: 999px; background: var(--accent); position: relative; }
+  .sw::after { content: ""; position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--on-accent); }
+  .flow { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 26px 0 12px; }
+  .flow .av { width: 60px; height: 60px; font-size: 22px; }
+  .flow .arrow { color: var(--accent); font-size: 26px; font-weight: 700; }
+  .center { text-align: center; }
+  .amount { font-size: 38px; font-weight: 700; letter-spacing: -0.8px; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<section class="set" id="add"><h2>Add expense and adjust split</h2><p>Type what and how much, then tap the two lime words to change who paid or how it is split.</p>
+<div class="pair">
+  <div><div class="phone"><div class="status"><span>9:41</span><span>LTE ▮</span></div><div class="body">
+    <div class="top"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg><b>Add expense</b><span class="act">Save</span></div>
+    <div class="with">With you and <span class="chip">🏝️ All of Bali Trip</span></div>
+    <div class="field" style="margin-top:14px"><div class="tile">🍽️</div><div class="v">Seafood dinner</div></div>
+    <div class="field"><div class="tile cur">IDR</div><div class="v big">480,000</div></div>
+    <div class="sentence">Paid by <span class="chip pri">you</span> and split <span class="chip pri">equally</span></div>
+    <div class="hint">IDR 96,000 per person · 5 people</div>
+    <div class="tools"><span class="chip">📅 16 Nov</span><span class="chip">📝 Add note</span></div>
+  </div><div class="btn">Save expense</div></div><div class="cap">Add expense</div></div>
+
+  <div><div class="phone"><div class="status"><span>9:41</span><span>LTE ▮</span></div><div class="body">
+    <div class="top"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><b>Adjust split</b><span class="act">Done</span></div>
+    <div class="paidby"><span class="mut">Paid by</span><b>You ›</b></div>
+    <div class="lbl">Split method</div>
+    <div class="seg"><span class="on">Equal</span><span>Exact</span><span>%</span><span>Shares</span><span>Adjust</span></div>
+    <div class="lbl">Who shares this</div>
+    <div class="person"><div class="av y">Y</div><div class="n">You</div><div class="amt">IDR 96,000</div><div class="check">✓</div></div>
+    <div class="person"><div class="av a">A</div><div class="n">Andi</div><div class="amt">IDR 96,000</div><div class="check">✓</div></div>
+    <div class="person"><div class="av s">S</div><div class="n">Sari</div><div class="amt">IDR 96,000</div><div class="check">✓</div></div>
+    <div class="person"><div class="av b">B</div><div class="n">Budi</div><div class="amt">IDR 96,000</div><div class="check">✓</div></div>
+    <div class="person"><div class="av m">M</div><div class="n">Maya</div><div class="amt">IDR 96,000</div><div class="check">✓</div></div>
+    <div class="hint" style="margin-top:14px">Total IDR 480,000 · nothing left to assign</div>
+  </div></div><div class="cap">Adjust split — five methods, one or several payers</div></div>
+</div></section>
+
+<section class="set" id="bal"><h2>Balances and record a payment</h2><p>See who owes whom, share it to WhatsApp, and record a payment when someone pays back.</p>
+<div class="pair">
+  <div><div class="phone"><div class="status"><span>9:41</span><span>LTE ▮</span></div><div class="body">
+    <div class="top"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg><b>Balances</b><span style="width:20px"></span></div>
+    <div class="card"><div class="head"><div class="av a">A</div><div class="n" style="flex:1"><b>Andi</b> owes <b class="pos">IDR 190,000</b></div></div>
+      <div class="line">Andi owes you <span class="pos">IDR 190,000</span></div>
+      <div class="acts"><span class="chip">Remind</span><span class="chip pri">Settle up</span></div></div>
+    <div class="card"><div class="head"><div class="av s">S</div><div class="n" style="flex:1"><b>Sari</b> owes <b class="pos">IDR 120,000</b></div></div>
+      <div class="line">Sari owes you <span class="pos">IDR 120,000</span><br>You owe Sari <span class="neg">SGD 6</span></div>
+      <div class="acts"><span class="chip">Remind</span><span class="chip pri">Settle up</span></div></div>
+    <div class="card"><div class="head"><div class="av b">B</div><div class="n mut" style="flex:1"><b style="color:var(--text)">Budi</b> is settled up</div></div></div>
+    <div class="card"><div class="head"><div class="av m">M</div><div class="n mut" style="flex:1"><b style="color:var(--text)">Maya</b> is settled up</div></div></div>
+    <div class="toggle"><div><b>Simplify debts</b><br><span class="mut" style="font-size:11px">Fewer payments between people</span></div><div class="sw"></div></div>
+  </div><div class="btn ghost">Share summary to WhatsApp</div></div><div class="cap">Balances</div></div>
+
+  <div><div class="phone"><div class="status"><span>9:41</span><span>LTE ▮</span></div><div class="body">
+    <div class="top"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg><b>Record a payment</b><span class="act">Save</span></div>
+    <div class="flow"><div class="av a">A</div><div class="arrow">→</div><div class="av y">Y</div></div>
+    <div class="center"><b style="font-size:15px">Andi paid you</b><div class="amount pos">IDR 190,000</div><div class="hint" style="margin-top:6px">Full amount owed · tap to change</div></div>
+    <div class="tools" style="margin-top:30px"><span class="chip">📅 16 Nov</span><span class="chip">📝 Add note</span></div>
+    <div class="hint" style="margin-top:18px">This only records the payment.<br>No money moves inside the app.</div>
+  </div><div class="btn">Save payment</div></div><div class="cap">Record a payment (settle up)</div></div>
+</div></section>
+
+<script>
+const only = location.hash.slice(1);
+if (only) document.querySelectorAll('.set').forEach(s => { if (s.id !== only) s.style.display = 'none'; });
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+# Build output
+app/core/target/
+app/dist/
+
+# Screenshots taken from the reference app's video: not ours to publish
+docs/reference-screens/
