@@ -42,7 +42,18 @@ flowchart LR
 | 7.6 | Security rules, then test with two Google accounts | Claude, Raymond tests |
 | 7.7 | Later: notifications, comments (bucket C) | — |
 
-## Firebase setup (step 7.1)
+Status 17 Nov 2026: 7.1–7.5 built in version 1.2. Rules from `firestore.rules` published; checked that a visitor without sign-in cannot read or write. The merge rules were tested by simulating two phones (share → join → "I am Juju" → both phones end with identical rows). Not yet tested: real sign-in with two Google accounts (7.6).
+
+Known limits of 1.2:
+- Receipt photos are not shared; only the phone that took a photo shows it.
+- If two people edit the same expense at the same moment, the later save wins.
+- A member cannot be removed from a shared group's accounts yet (only from the names list).
+
+## Firebase setup (step 7.1) — done 17 Nov 2026
+
+Project `split-pay-5cf1a` (Spark plan). Google sign-in on (public name "Split Pay"), authorized domain `raymondgio.github.io` added, Firestore Standard edition in asia-southeast2 (Jakarta), production mode (all access denied until our rules are published). No scheduled backups (paid plan only). Web app `split-pay` registered; config saved in `app/web/firebase-config.js` and checked against Google's API.
+
+Steps that were followed:
 
 1. console.firebase.google.com → **Create a project** → name `split-pay` → Google Analytics **off**.
 2. **Build → Authentication → Get started → Google → Enable** → Save. Then Settings → **Authorized domains → Add** `raymondgio.github.io`.

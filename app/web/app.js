@@ -1,8 +1,9 @@
 import { loadCore, split, balances, balancesConverted } from './core.js';
 import { kvGet, kvPut, photoGet, photoPut, photoDel, photoAll, photoReplaceAll, compressImage, summaryImage, shareFile } from './media.js';
+import { sync, initSync, resume, warm, signIn, signOut, schedulePush, shareGroup, inviteLink, joinGroup, claimName, addMeTo, claimedHere } from './sync.js';
 
 // ------------------------------------------------------------ constants
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const CUR = { IDR: 0, SGD: 2, MYR: 2, THB: 2, CNY: 2, JPY: 0 };
 const BASE = 'IDR'; // exchange rates are typed as "1 X = ? IDR"
 const TYPES = { Trip: '🏝️', Home: '🏠', Couple: '💞', Other: '👥' };
@@ -29,8 +30,15 @@ let S = null; // saved data
 const ui = { draft: null, locked: false, hiddenAt: 0, viewer: null, q: '', tot: {}, conv: {} };
 const $app = document.getElementById('app');
 
-async function saveState() { await kvPut('state', S); }
+async function saveQuiet() { await kvPut('state', S); }
+async function saveState() { await kvPut('state', S); if (S?.sync?.uid) schedulePush(); }
 async function commit() { await saveState(); render(); }
+/** Re-draw after a change from a friend, but never under someone's fingers while they type. */
+function softRender() {
+  const h = location.hash;
+  const busy = /^#\/(expense|payment|new-group)/.test(h) || /\/(set|wb)$/.test(h) || document.activeElement?.matches?.('input, textarea, select');
+  if (!busy) render();
+}
 
 /** Fill in fields added after version 1.0, so older data keeps working. */
 function migrate(s) {
@@ -47,6 +55,8 @@ function migrate(s) {
     s.groups.push(ng);
   }
   for (const p of s.people) if (!ng.memberIds.includes(p.id)) ng.memberIds.push(p.id);
+  s.sync ||= { uid: null, pushed: {} };
+  s.sync.pushed ||= {};
   s.version = 2;
   return s;
 }
@@ -163,6 +173,16 @@ function addInterval(dateStr, rep, anchor) {
   const dim = new Date(Date.UTC(ny, nmo + 1, 0)).getUTCDate();
   return `${ny}-${String(nmo + 1).padStart(2, '0')}-${String(Math.min(anchor || d, dim)).padStart(2, '0')}`;
 }
+/** Same input → same ID, so two phones that both make a repeat copy make the same one. */
+function stableId(text) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57, h3 = 0x9e3779b9, h4 = 0x85ebca6b;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677);
+    h3 = Math.imul(h3 ^ c, 2246822507); h4 = Math.imul(h4 ^ c, 3266489909);
+  }
+  return 'r' + [h1, h2, h3, h4].map((h) => (h >>> 0).toString(16).padStart(8, '0')).join('');
+}
 /** Create the copies of repeating expenses that are due. The repeat moves to the newest copy. */
 function runRepeats() {
   let made = 0;
@@ -171,8 +191,10 @@ function runRepeats() {
     if (e.deleted || !e.repeat || e.repeat === 'none') continue;
     let cur = e, n = 0, next = addInterval(cur.date, cur.repeat, cur.repeatDay);
     while (next <= t && n < 60) {
-      const copy = { ...structuredClone(cur), id: uid(), date: next, createdAt: nowIso(), updatedAt: nowIso(), photoId: null };
-      cur.repeat = 'none';
+      const id = stableId(`${cur.id}|${next}`);
+      if (S.expenses.some((x) => x.id === id)) { cur.repeat = 'none'; cur.updatedAt = nowIso(); break; }
+      const copy = { ...structuredClone(cur), id, date: next, createdAt: nowIso(), updatedAt: nowIso(), photoId: null };
+      cur.repeat = 'none'; cur.updatedAt = nowIso();
       S.expenses.push(copy);
       cur = copy; n++;
       next = addInterval(cur.date, cur.repeat, cur.repeatDay);
@@ -192,9 +214,10 @@ const topBack = (title, right = '<span style="width:28px"></span>', icon = I.bac
   `<div class="top center"><button class="icon-btn" data-act="back" aria-label="Back">${icon}</button><h1>${title}</h1>${right}</div>`;
 
 function vOnboard() {
+  const invited = location.hash.startsWith('#/join/');
   return `<div class="page"><div style="height:18vh"></div>
     <h2 class="title">Welcome to<br><span class="pos">Split Pay</span></h2>
-    <p class="mut" style="margin:10px 0 26px">Split costs with friends. No ads, no account, your data stays on this phone.</p>
+    <p class="mut" style="margin:10px 0 26px">${invited ? 'A friend invited you to a group. First, type your name.' : 'Split costs with friends. No ads, no account, your data stays on this phone.'}</p>
     <div class="lbl">Your name</div>
     <input class="input" id="ob-name" placeholder="e.g. Raymond" autocomplete="off" maxlength="30">
     <div class="bottom"><button class="btn" data-act="onboard">Start</button></div></div>`;
@@ -220,7 +243,7 @@ function vGroups() {
   const cards = gs.map((g) => {
     const nets = myNets(groupBal(g)); add(nets);
     return `<button class="row" data-act="go" data-to="#/g/${g.id}"><div class="tile">${TYPES[g.type] || '👥'}</div>
-      <div class="mid"><b>${esc(g.name)}</b><small>${g.memberIds.length} people · ${esc(g.type)}${tripText(g)}</small></div>${netsHtml(nets, 'settled up')}</button>`;
+      <div class="mid"><b>${esc(g.name)}</b><small>${g.memberIds.length} people · ${esc(g.type)}${g.shared ? ' · shared' : ''}${tripText(g)}</small></div>${netsHtml(nets, 'settled up')}</button>`;
   }).join('');
   const ngNets = myNets(groupBal(ng)); add(ngNets);
   const ngRow = friends().length || hasItems(ng)
@@ -285,7 +308,7 @@ function vGroup(g) {
     lastMonth = month;
     return head + rowHtml(it);
   }).join('');
-  const sub = g.nongroup ? 'Expenses with friends, outside any group' : `${g.memberIds.length} people · ${esc(g.type)}${tripText(g)}`;
+  const sub = g.nongroup ? 'Expenses with friends, outside any group' : `${g.memberIds.length} people · ${esc(g.type)}${g.shared ? ' · shared' : ''}${tripText(g)}`;
   return `<div class="page"><div class="top"><button class="icon-btn" data-act="go" data-to="#/" aria-label="Back">${I.back}</button><span></span>
       ${g.nongroup ? '' : `<button class="icon-btn right" data-act="go" data-to="#/g/${g.id}/set" aria-label="Group settings">${I.gear}</button>`}</div>
     <h2 class="title">${esc(groupTitle(g))}</h2><div class="mut">${sub}</div>
@@ -349,7 +372,59 @@ function vGroupSettings(g) {
     ${others.length ? `<div class="boxrow"><span class="mut">Add a friend</span><select data-in="g-add" data-gid="${g.id}"><option value="">Choose…</option>${others.map((p) => opt(p.id, p.name, '')).join('')}</select></div>` : ''}
     <div class="inline"><input class="input" id="g-new" placeholder="New person's name" maxlength="30"><button class="chip pri" data-act="g-add-new" data-gid="${g.id}">Add</button></div>
     <button class="setrow" style="margin-top:14px" data-act="toggle-simplify" data-gid="${g.id}"><div><b>Simplify debts</b><small>Fewer payments between people</small></div><div class="switch ${g.simplify ? 'on' : ''}"></div></button>
+    ${vShareBox(g)}
     <button class="btn danger" style="margin-top:22px" data-act="g-delete" data-gid="${g.id}">Delete group</button></div>`;
+}
+
+// ------------------------------------------------------ sharing (phase 7)
+function vShareBox(g) {
+  warm();
+  if (!g.shared) {
+    return `<div class="lbl">Share with friends</div>
+      <div class="card"><p class="hint" style="text-align:left;margin:0 0 10px">Friends get a link, sign in with Google, pick their name, and then everyone adds expenses to this group from their own phone. The group is stored online (Google Firebase); other groups stay only on this phone.</p>
+      <button class="btn" data-act="share-group" data-gid="${g.id}" ${sync.busy ? 'disabled' : ''}>${sync.busy === 'share' ? 'Sharing…' : 'Share this group'}</button></div>`;
+  }
+  const joined = g.memberIds.filter((id) => g.uids?.[id]).length;
+  return `<div class="lbl">Shared group</div>
+    <div class="card"><p class="hint" style="text-align:left;margin:0 0 10px">${joined} of ${g.memberIds.length} people have joined. ${g.memberIds.map((id) => `${esc(nm(id))} ${g.uids?.[id] ? '✓' : '…'}`).join(' · ')}</p>
+    ${g.inviteCode ? `<button class="btn" data-act="send-invite" data-gid="${g.id}">Send invite link</button>` : ''}
+    ${sync.user ? '' : `<button class="btn ghost" style="margin-top:8px" data-act="sign-in">Sign in to keep this group in sync</button>`}</div>`;
+}
+
+function vJoin(gid, code) {
+  const head = `<div class="page"><div class="top center"><button class="icon-btn" data-act="go" data-to="#/" aria-label="Close">${I.close}</button><h1>Join a group</h1><span style="width:28px"></span></div>`;
+  const g = group(gid);
+  warm();
+  if (sync.user && !g && !sync.busy && !sync.error && ui.joinTried !== code) {
+    ui.joinTried = code;
+    setTimeout(() => actions['join-retry']({ gid, code }), 0);
+  }
+  if (!sync.user) {
+    return `${head}<div style="height:6vh"></div><h2 class="title">You're invited</h2>
+      <p class="mut" style="margin:10px 0 22px">Sign in with Google so Split Pay knows it's you. Your Google account is only used to see and add expenses in groups you join.</p>
+      <button class="btn" data-act="join-sign-in" data-gid="${gid}" data-code="${esc(code)}" ${sync.busy ? 'disabled' : ''}>${sync.busy ? 'Signing in…' : 'Sign in with Google'}</button>
+      ${sync.error ? `<div class="hint err" style="margin-top:10px">${esc(syncErrorText())}</div>` : ''}</div>`;
+  }
+  if (!g) {
+    return `${head}<div style="height:6vh"></div><h2 class="title">Joining…</h2>
+      <p class="mut" style="margin:10px 0 22px">Signed in as ${esc(sync.user.email)}. Getting the group.</p>
+      ${sync.error ? `<div class="hint err">${esc(syncErrorText())}</div><button class="btn" style="margin-top:12px" data-act="join-retry" data-gid="${gid}" data-code="${esc(code)}">Try again</button>` : ''}</div>`;
+  }
+  if (claimedHere(g)) { setTimeout(() => { history.replaceState(null, '', `#/g/${g.id}`); render(); }, 0); return head + '</div>'; }
+  const open = g.memberIds.filter((id) => !g.uids?.[id]);
+  return `${head}<h2 class="title">${esc(g.name)}</h2>
+    <p class="mut" style="margin:6px 0 16px">Who are you in this group?</p>
+    ${open.map((id) => `<button class="person" data-act="claim" data-gid="${g.id}" data-id="${id}">${av(id)}<div class="n">I am ${esc(person(id).name)}</div><span class="pos">›</span></button>`).join('')}
+    <button class="btn ghost" style="margin-top:16px" data-act="add-me" data-gid="${g.id}">I'm not on the list, add me as ${esc(person(S.me).name)}</button></div>`;
+}
+function syncErrorText() {
+  const e = sync.error;
+  if (e === 'not-found') return 'This invite link does not work any more. Ask for a new one.';
+  if (e === 'permission-denied') return 'This invite link was not accepted. Ask your friend to send it again.';
+  if (e === 'auth/popup-blocked') return 'The sign-in window was blocked. Allow pop-ups and try again.';
+  if (e === 'auth/popup-closed-by-user' || e === 'auth/cancelled-popup-request') return 'Sign-in was cancelled.';
+  if (e === 'offline' || e === 'unavailable' || e === 'auth/network-request-failed') return 'No internet connection.';
+  return `Something went wrong (${e}).`;
 }
 
 function vWhiteboard(g) {
@@ -593,13 +668,17 @@ function vAccount() {
     <button class="setrow" data-act="go" data-to="#/account/rates"><div><b>Exchange rates</b><small>${rateCount ? `${rateCount} of ${Object.keys(CUR).length - 1} set` : 'Not set yet'}</small></div><span class="mut">›</span></button>
     <button class="setrow" data-act="go" data-to="#/account/categories"><div><b>Categories</b><small>${S.settings.categories.length} categories</small></div><span class="mut">›</span></button>
     <button class="setrow" data-act="go" data-to="#/account/presets"><div><b>People presets</b><small>${S.settings.presets.length ? `${S.settings.presets.length} saved` : 'Save one from “Adjust split”'}</small></div><span class="mut">›</span></button>
+    <div class="lbl">Sync with friends</div>
+    ${(warm(), sync.user)
+      ? `<div class="setrow"><div><b>Signed in with Google</b><small>${esc(sync.user.email)} · ${realGroups().filter((g) => g.shared).length} shared group(s)</small></div><button class="chip" data-act="sign-out">Sign out</button></div>`
+      : `<button class="setrow" data-act="sign-in"><div><b>Sign in with Google</b><small>${S.sync?.uid ? 'Signed out. Sign in again to keep shared groups in sync' : 'Only needed for groups you share. Share one from its settings'}</small></div><span class="pos">${sync.busy === 'sign-in' ? '…' : 'Sign in'}</span></button>`}
     <div class="lbl">Security</div>
     <button class="setrow" data-act="go" data-to="#/account/lock"><div><b>App lock</b><small>${S.settings.lock ? `On${S.settings.lock.bio ? ', with fingerprint' : ''}` : 'Off'}</small></div><span class="mut">›</span></button>
     <div class="lbl">Your data</div>
     <button class="setrow" data-act="backup"><div><b>Back up</b><small>Save one file, e.g. to Google Drive</small></div><span class="pos">Save</span></button>
     <button class="setrow" data-act="restore"><div><b>Restore</b><small>Replace everything here with a backup file</small></div><span class="pos">Open</span></button>
     <input type="file" id="restore-file" accept="application/json,.json" hidden>
-    <p class="hint" style="margin-top:22px">Split Pay ${APP_VERSION} · ${S.expenses.filter((e) => !e.deleted).length} expenses · data stays on this device</p>
+    <p class="hint" style="margin-top:22px">Split Pay ${APP_VERSION} · ${S.expenses.filter((e) => !e.deleted).length} expenses · ${realGroups().some((g) => g.shared) ? 'shared groups sync online, the rest stays on this device' : 'data stays on this device'}</p>
     </div>${tabs('account')}`;
 }
 function vRates() {
@@ -656,7 +735,8 @@ function render() {
     const g = group(parts[1]);
     html = parts[2] === 'bal' ? vBalances(g) : parts[2] === 'totals' ? vTotals(g)
       : parts[2] === 'set' && !g.nongroup ? vGroupSettings(g) : parts[2] === 'wb' && !g.nongroup ? vWhiteboard(g) : vGroup(g);
-  } else if (parts[0] === 'search') html = vSearch();
+  } else if (parts[0] === 'join' && parts[1] && parts[2]) html = vJoin(parts[1], parts[2]);
+  else if (parts[0] === 'search') html = vSearch();
   else if (parts[0] === 'friends') html = vFriends();
   else if (parts[0] === 'activity') html = vActivity();
   else if (parts[0] === 'account') {
@@ -976,6 +1056,63 @@ const actions = {
     if (r === 'downloaded') toast('Backup file saved to Downloads');
   },
   restore: () => document.getElementById('restore-file').click(),
+
+  // ---- sync (phase 7)
+  'sign-in': async () => {
+    sync.busy = 'sign-in'; sync.error = ''; render();
+    try { await signIn(); toast('Signed in'); } catch (e) { sync.error = e.code || String(e); toast(syncErrorText()); }
+    sync.busy = ''; render();
+  },
+  'sign-out': async () => {
+    if (!confirm('Sign out? Shared groups stay on this phone but stop syncing until you sign in again.')) return;
+    await signOut(); render(); toast('Signed out');
+  },
+  'share-group': async (d) => {
+    const g = group(d.gid);
+    if (!confirm(`Share “${g.name}”? It will be stored online in Google Firebase so friends with the invite link can join.`)) return;
+    sync.busy = 'share'; sync.error = ''; render();
+    try {
+      await shareGroup(g);
+      log(`You shared the group “${g.name}”.`);
+      await saveState();
+      toast('Group shared. Now send the invite link.');
+    } catch (e) { sync.error = e.code || String(e); toast(syncErrorText()); }
+    sync.busy = ''; render();
+  },
+  'send-invite': (d) => {
+    const g = group(d.gid);
+    shareText(`Join “${g.name}” on Split Pay, so we can all add expenses: ${inviteLink(g)}`);
+  },
+  'join-sign-in': async (d) => {
+    sync.busy = 'join'; sync.error = ''; render();
+    try { await signIn(); await joinGroup(d.gid, d.code); }
+    catch (e) { sync.error = e.code || String(e); }
+    sync.busy = ''; render();
+  },
+  'join-retry': async (d) => {
+    sync.error = ''; render();
+    try { await joinGroup(d.gid, d.code); } catch (e) { sync.error = e.code || String(e); }
+    render();
+  },
+  claim: async (d) => {
+    const g = group(d.gid), name = person(d.id).name;
+    if (!confirm(`You are ${name} in “${g.name}”? Everything under ${name} becomes yours.`)) return;
+    try {
+      await claimName(g, d.id);
+      log(`You joined “${g.name}” as ${name}.`);
+      await saveState();
+      history.replaceState(null, '', `#/g/${g.id}`); render(); toast(`Welcome to ${g.name}`);
+    } catch (e) { sync.error = e.code || String(e); toast(syncErrorText()); }
+  },
+  'add-me': async (d) => {
+    const g = group(d.gid);
+    try {
+      await addMeTo(g);
+      log(`You joined “${g.name}”.`);
+      await saveState();
+      history.replaceState(null, '', `#/g/${g.id}`); render(); toast(`Welcome to ${g.name}`);
+    } catch (e) { sync.error = e.code || String(e); toast(syncErrorText()); }
+  },
 };
 
 document.addEventListener('click', (e) => {
@@ -1050,6 +1187,8 @@ document.addEventListener('keydown', (e) => {
       if (runRepeats()) await saveState();
     }
     render();
+    initSync({ getS: () => S, saveQuiet, rerender: (soft) => (soft ? softRender() : render()), toast, log, nm, nowIso });
+    resume().then(render);
   } catch (err) {
     $app.innerHTML = `<div class="page"><div class="empty"><b>Split Pay could not start</b>${esc(err.message || err)}</div></div>`;
   }

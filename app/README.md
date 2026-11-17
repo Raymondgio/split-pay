@@ -18,6 +18,10 @@ flowchart LR
 | `web/app.js` | All screens and actions |
 | `web/media.js` | On-device storage, receipt photos, the share picture, file sharing |
 | `web/core.js` | Loads the Rust core and calls it |
+| `web/sync.js` | Phase 7: Google sign-in, share a group, join by link, live updates (Firebase) |
+| `web/syncmerge.js` | Phase 7: how changes from different phones are merged (no Firebase inside, testable alone) |
+| `web/firebase-config.js` | Public Firebase project settings |
+| `../firestore.rules` | Who may read or change shared groups (published in the Firebase console) |
 | `web/core.wasm` | The built Rust core (made by `build.ps1`, do not edit) |
 | `web/styles.css` | Style A (Ink & Lime), dark and light |
 | `web/sw.js`, `web/manifest.webmanifest`, `web/icons/` | Offline support and the home-screen icon |
