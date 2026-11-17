@@ -20,7 +20,7 @@ Not done or not verified yet:
 - Putting it on a phone: host = GitHub Pages from `github.com/Raymondgio/split-pay` (17 Nov 2026), live at `https://raymondgio.github.io/split-pay/`. Steps in [app/README.md](app/README.md).
 - Only testable on a phone: the share sheet to WhatsApp, the camera for receipt photos, fingerprint unlock.
 - Exchange rates are typed by hand; nothing is fetched from the internet.
-- Bucket C (sync with friends, login, notifications, comments) — phase 7.
+- Bucket C (sync with friends, login, notifications, comments) — phase 7, started 17 Nov 2026 with Firebase. Plan: [docs/07-sync-plan.md](docs/07-sync-plan.md).
 
 ## Files
 
