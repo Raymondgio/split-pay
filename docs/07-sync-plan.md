@@ -40,7 +40,7 @@ flowchart LR
 | 7.4 | Join by link, claim a name | Claude |
 | 7.5 | Live updates and offline queue | Claude |
 | 7.6 | Security rules, then test with two Google accounts | Claude, Raymond tests |
-| 7.7 | Later: notifications, comments (bucket C) | — |
+| 7.7 | Later: notifications, comments (bucket C). Notifications parked 20 Nov 2026: they need a sender program (Firebase Blaze plan with a card, or free Cloudflare Workers) | — |
 
 Status 17 Nov 2026: 7.1–7.5 built in version 1.2. Rules from `firestore.rules` published; checked that a visitor without sign-in cannot read or write. The merge rules were tested by simulating two phones (share → join → "I am Juju" → both phones end with identical rows). Not yet tested: real sign-in with two Google accounts (7.6).
 
