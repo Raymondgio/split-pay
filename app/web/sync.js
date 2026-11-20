@@ -2,6 +2,7 @@
 // Firebase is loaded only when needed, so the app still opens instantly and offline.
 import { firebaseConfig } from './firebase-config.js';
 import { applyGroup, applyItem, dirty, clean, groupFields, groupSig, peopleMap, renamePerson, rowHas, inviteCode } from './syncmerge.js';
+import { photoGet, photoPut, shrinkDataUrl } from './media.js';
 
 const CDN = 'https://www.gstatic.com/firebasejs/10.14.1';
 let fb = null, loading = null, H = null;
@@ -107,6 +108,7 @@ function watchItems(gid) {
       const res = applyItem(S, r, g?.claims || {});
       if (!res) continue;
       touched = true;
+      if (r.photoId) fetchPhoto(gid, r.photoId); // keep a copy on this phone, so it also shows offline
       if (primed.has(gid) && r.by && r.by !== S.me) {
         const what = r.kind === 'p' ? `a payment of ${r.currency}` : `“${r.desc}”`;
         H.log(`${H.nm(r.by)} ${r.deleted ? 'deleted' : res === 'new' ? 'added' : 'edited'} ${what} in “${g?.name || 'a group'}”.`);
@@ -128,7 +130,7 @@ async function push() {
   if (!fb || !sync.user || !S) return;
   const { fs, db } = fb;
   const { groups, items } = dirty(S);
-  if (!groups.length && !items.length) return;
+  if (!groups.length && !items.length) return pushPhotos();
   for (const g of groups) {
     fs.updateDoc(fs.doc(db, 'groups', g.id), { ...groupFields(g), people: peopleMap(S, g) }).catch(fail);
     S.sync.pushed['g:' + g.id] = groupSig(S, g);
@@ -138,6 +140,51 @@ async function push() {
     S.sync.pushed[row.id] = row.updatedAt;
   }
   await H.saveQuiet();
+  await pushPhotos();
+}
+
+// ---------------------------------------------------------------- photos
+// A shared group's receipt photos live at groups/{groupId}/photos/{photoId} as a small JPEG.
+// A changed photo always gets a new photoId, so a photo is uploaded once and never edited.
+async function pushPhotos() {
+  const S = H.getS();
+  const { fs, db } = fb;
+  const shared = new Set(S.groups.filter((g) => g.shared && !g.nongroup).map((g) => g.id));
+  for (const e of S.expenses) {
+    if (!e.photoId || e.deleted || !shared.has(e.groupId) || S.sync.pushed['ph:' + e.photoId]) continue;
+    const data = await photoGet(e.photoId);
+    if (!data) continue; // the photo lives on another phone
+    const small = await shrinkDataUrl(data);
+    if (!small) continue;
+    S.sync.pushed['ph:' + e.photoId] = true;
+    fs.setDoc(fs.doc(db, 'groups', e.groupId, 'photos', e.photoId), { data: small, expenseId: e.id, by: S.me, updatedAt: H.nowIso() })
+      .catch((err) => { delete S.sync.pushed['ph:' + e.photoId]; fail(err); });
+  }
+  await H.saveQuiet();
+}
+
+const fetching = new Map();
+/** Get a shared photo from Firebase and keep it on this phone. Returns the picture or null. */
+export function fetchPhoto(gid, photoId) {
+  if (!fb || !photoId) return Promise.resolve(null);
+  if (fetching.has(photoId)) return fetching.get(photoId);
+  const p = (async () => {
+    const have = await photoGet(photoId);
+    if (have) return have;
+    const { fs, db } = fb;
+    const snap = await fs.getDoc(fs.doc(db, 'groups', gid, 'photos', photoId));
+    const data = snap.exists() ? snap.data().data : null;
+    if (data) {
+      await photoPut(photoId, data);
+      const S = H.getS();
+      S.sync.pushed['ph:' + photoId] = true; // already online, no need to upload it back
+      await H.saveQuiet();
+      H.rerender(true);
+    }
+    return data;
+  })().catch(() => null).finally(() => fetching.delete(photoId));
+  fetching.set(photoId, p);
+  return p;
 }
 function fail(err) {
   sync.error = err?.code || String(err);

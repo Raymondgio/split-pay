@@ -56,6 +56,24 @@ export async function compressImage(file) {
 }
 
 /**
+ * Smaller copy of a saved photo, for sharing online (Firestore keeps at most 1 MB per record).
+ * Starts at 1000 px / quality 0.6 and steps down until it fits.
+ */
+export async function shrinkDataUrl(dataUrl, maxChars = 600_000) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl; });
+  for (const [side, q] of [[1000, 0.6], [900, 0.5], [800, 0.45], [700, 0.4], [600, 0.35]]) {
+    const scale = Math.min(1, side / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const out = c.toDataURL('image/jpeg', q);
+    if (out.length <= maxChars) return out;
+  }
+  return null;
+}
+
+/**
  * Draw a balance summary as a PNG.
  * lines: [{ text, amount, tone: 'pos' | 'neg' | '' }]
  */

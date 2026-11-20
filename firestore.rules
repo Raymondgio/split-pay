@@ -40,6 +40,15 @@ service cloud.firestore {
         allow read, create, update: if isMember(get(/databases/$(database)/documents/groups/$(groupId)).data);
         allow delete: if false;
       }
+
+      // Receipt photos: small JPEGs, members only.
+      match /photos/{photoId} {
+        allow read: if isMember(get(/databases/$(database)/documents/groups/$(groupId)).data);
+        allow create, update: if isMember(get(/databases/$(database)/documents/groups/$(groupId)).data)
+          && request.resource.data.data is string
+          && request.resource.data.data.size() < 900000;
+        allow delete: if false;
+      }
     }
   }
 }

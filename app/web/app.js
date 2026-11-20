@@ -1,6 +1,6 @@
 import { loadCore, split, balances, balancesConverted } from './core.js';
 import { kvGet, kvPut, photoGet, photoPut, photoDel, photoAll, photoReplaceAll, compressImage, summaryImage, shareFile } from './media.js';
-import { sync, initSync, resume, warm, signIn, signOut, schedulePush, shareGroup, inviteLink, joinGroup, claimName, addMeTo, claimedHere } from './sync.js';
+import { sync, initSync, resume, warm, signIn, signOut, schedulePush, fetchPhoto, shareGroup, inviteLink, joinGroup, claimName, addMeTo, claimedHere } from './sync.js';
 
 // ------------------------------------------------------------ constants
 const APP_VERSION = '1.2.0';
@@ -872,7 +872,8 @@ const actions = {
       repeat: e.repeat || 'none', photoId: e.photoId, photoData: null, photoDirty: false };
     go('#/expense');
     if (e.photoId) {
-      const data = await photoGet(e.photoId);
+      let data = await photoGet(e.photoId);
+      if (!data && group(e.groupId)?.shared) data = await fetchPhoto(e.groupId, e.photoId);
       if (ui.draft?.id === e.id && !ui.draft.photoDirty) { ui.draft.photoData = data || null; render(); }
     }
   },
@@ -913,7 +914,8 @@ const actions = {
     const g = group(d.groupId);
     let photoId = d.photoId;
     if (d.photoDirty) {
-      if (d.photoData) { photoId = d.photoId || uid(); await photoPut(photoId, d.photoData); }
+      // A new or changed photo always gets a new ID, so shared groups upload it once.
+      if (d.photoData) { if (d.photoId) await photoDel(d.photoId); photoId = uid(); await photoPut(photoId, d.photoData); }
       else { if (d.photoId) await photoDel(d.photoId); photoId = null; }
     }
     const date = d.date || today();

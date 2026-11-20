@@ -130,10 +130,8 @@ export function applyItem(S, r, claims = {}) {
   let res = '';
   if (!local) { list.push(row); res = 'new'; }
   else if ((row.updatedAt || '') > (local.updatedAt || '')) {
-    const photoId = local.photoId;
     for (const k of Object.keys(local)) delete local[k];
     Object.assign(local, row);
-    if (kind !== 'p' && photoId && !row.photoId) local.photoId = photoId;
     res = 'updated';
   }
   S.sync.pushed[row.id] = (local || row).updatedAt;

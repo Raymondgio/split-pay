@@ -14,7 +14,7 @@ flowchart LR
 
 - **App**: stays on GitHub Pages, as now.
 - **Shared data**: Firebase (Google). Free Spark plan, no payment method. Limits: 50,000 reads and 20,000 writes per day (checked 17 Nov 2026 on firebase.google.com/pricing). A group of 10 uses a few hundred a day.
-- **Not on the free plan**: Cloud Storage. Receipt photos stay on the phone that took them.
+- **Not on the free plan**: Cloud Storage. So receipt photos are stored small, inside Firestore itself (see 20 Nov below).
 
 ## How a friend joins
 
@@ -44,8 +44,10 @@ flowchart LR
 
 Status 17 Nov 2026: 7.1–7.5 built in version 1.2. Rules from `firestore.rules` published; checked that a visitor without sign-in cannot read or write. The merge rules were tested by simulating two phones (share → join → "I am Juju" → both phones end with identical rows). Not yet tested: real sign-in with two Google accounts (7.6).
 
-Known limits of 1.2:
-- Receipt photos are not shared; only the phone that took a photo shows it.
+20 Nov 2026: receipt photos of shared groups are shared too. Each photo is shrunk to a small JPEG (about 70–130 KB, max 1000 px) and stored in Firestore at `groups/{groupId}/photos/{photoId}`, members only (rules updated and published). Every phone downloads a photo once and keeps it, so it also shows offline. No Cloud Storage, so no paid plan. Free 1 GB ≈ 8,000+ receipts.
+
+Known limits:
+- A removed or replaced photo stays stored online (it is just no longer linked), so it still uses space.
 - If two people edit the same expense at the same moment, the later save wins.
 - A member cannot be removed from a shared group's accounts yet (only from the names list).
 
