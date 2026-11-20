@@ -12,6 +12,11 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function isMember(data) { return signedIn() && request.auth.uid in data.memberUids; }
 
+    // Online backups: each account sees only its own.
+    match /users/{userId}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
     match /groups/{groupId} {
       allow read: if isMember(resource.data);
 

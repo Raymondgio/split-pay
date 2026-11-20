@@ -46,6 +46,10 @@ Status 17 Nov 2026: 7.1–7.5 built in version 1.2. Rules from `firestore.rules`
 
 20 Nov 2026: log-in changed from Google sign-in to **email + password** (Raymond's choice). Firebase Email/Password provider turned on. Screens: Log in, Create account, Forgot password (Firebase emails a reset link). The join screen shows "Create an account" first. Google provider is still on in the console but no longer used by the app.
 
+20 Nov 2026 (later): **log-in is required for everyone** before the app opens (Raymond's rule). Order on start: log-in → (phone holds another account's data? → log out or erase) → name, or restore the latest online backup → app. The phone's data remembers its owner account, also after log-out. Offline: works if the phone was logged in before; the very first log-in needs internet.
+
+20 Nov 2026: **online backup** in Firebase: `users/{uid}/backups/{id}` (header) + `/parts/{n}` (text in pieces of 800,000 characters). Includes everything on the phone: all groups (also unshared), friends, settings, photos. Automatic once a day while logged in (never from an empty phone), plus "Back up online now" and "Restore from online backup" in Account. Newest 5 kept. Rules: only the owner account can read or write `users/{uid}/…` (published).
+
 20 Nov 2026: receipt photos of shared groups are shared too. Each photo is shrunk to a small JPEG (about 70–130 KB, max 1000 px) and stored in Firestore at `groups/{groupId}/photos/{photoId}`, members only (rules updated and published). Every phone downloads a photo once and keeps it, so it also shows offline. No Cloud Storage, so no paid plan. Free 1 GB ≈ 8,000+ receipts.
 
 Known limits:

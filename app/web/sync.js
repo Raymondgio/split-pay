@@ -12,7 +12,7 @@ const primed = new Set();     // groups whose first item snapshot has arrived
 let pushTimer = null;
 
 /** Live status, read by the screens. */
-export const sync = { user: null, ready: false, error: '', busy: '' };
+export const sync = { user: null, ready: false, error: '', busy: '', otherAccount: false };
 
 /** hooks: getS(), saveQuiet(), rerender(), toast(msg), log(text), nm(id), nowIso() */
 export function initSync(hooks) { H = hooks; }
@@ -42,12 +42,11 @@ async function load() {
 /** Start loading Firebase early, so the Google pop-up opens right after the tap (browsers block late pop-ups). */
 export function warm() { if (!fb) load().catch(() => {}); }
 
-/** Called at start-up: reconnect if this phone was signed in before. */
-export async function resume() {
-  const S = H.getS();
-  if (!S?.sync?.uid) return;
-  try { await load(); } catch { sync.error = 'offline'; }
-}
+/** Called at start-up: everyone must be logged in, so Firebase is always loaded. Throws when it cannot load (offline, first time). */
+export async function start() { await load(); }
+
+/** Start (or restart) syncing for the logged-in account, e.g. right after the phone's data was created. */
+export function refresh() { if (fb) onUser(); }
 
 /** Throws { code: 'need-login' } when nobody is logged in on this phone. */
 export async function signIn() {
@@ -82,9 +81,11 @@ function stopAll() {
 async function onUser() {
   const S = H.getS();
   stopAll();
-  if (!S) return;
+  sync.otherAccount = false;
+  if (!S || !sync.user) { H.rerender(); return; }
   S.sync ||= { pushed: {} };
-  if (!sync.user) { S.sync.uid = null; await H.saveQuiet(); H.rerender(); return; }
+  // The data on this phone belongs to the account that used it last (kept after log-out).
+  if (S.sync.uid && S.sync.uid !== sync.user.uid) { sync.otherAccount = true; H.rerender(); return; }
   S.sync.uid = sync.user.uid;
   await H.saveQuiet();
   const { fs, db } = fb;
@@ -139,7 +140,7 @@ export function schedulePush() {
 }
 async function push() {
   const S = H.getS();
-  if (!fb || !sync.user || !S) return;
+  if (!fb || !sync.user || !S || sync.otherAccount) return;
   const { fs, db } = fb;
   const { groups, items } = dirty(S);
   if (!groups.length && !items.length) return pushPhotos();
@@ -257,6 +258,53 @@ export async function addMeTo(g) {
   await fs.updateDoc(fs.doc(db, 'groups', g.id), 'memberIds', g.memberIds, 'people', peopleMap(S, g), 'updatedAt', now, new fs.FieldPath('uids', me), sync.user.uid);
   S.sync.pushed['g:' + g.id] = groupSig(S, g);
   await H.saveQuiet();
+}
+
+// ---------------------------------------------------------- online backup
+// users/{userId}/backups/{backupId}            header: when, size, counts, number of parts
+// users/{userId}/backups/{backupId}/parts/{n}  the backup text, in pieces of up to 800,000 characters
+// Only the owner can read them (security rules). The newest KEEP backups are kept.
+const PART = 800_000, KEEP = 5;
+
+/** Upload one backup (the same text as the backup file). Returns the header. */
+export async function backupOnline(json, meta = {}) {
+  const user = await signIn();
+  const { fs, db } = fb;
+  const id = new Date().toISOString().replace(/[:.]/g, '-');
+  const parts = Math.max(1, Math.ceil(json.length / PART));
+  for (let i = 0; i < parts; i++) {
+    await fs.setDoc(fs.doc(db, 'users', user.uid, 'backups', id, 'parts', String(i)), { data: json.slice(i * PART, (i + 1) * PART) });
+  }
+  const head = { createdAt: H.nowIso(), parts, size: json.length, ...meta };
+  await fs.setDoc(fs.doc(db, 'users', user.uid, 'backups', id), head); // written last: a header means the backup is complete
+  // Keep only the newest few.
+  const all = await fs.getDocsFromServer(fs.query(fs.collection(db, 'users', user.uid, 'backups'), fs.orderBy('createdAt', 'desc')));
+  for (const old of all.docs.slice(KEEP)) {
+    const n = old.data().parts || 1;
+    for (let i = 0; i < n; i++) await fs.deleteDoc(fs.doc(db, 'users', user.uid, 'backups', old.id, 'parts', String(i)));
+    await fs.deleteDoc(old.ref);
+  }
+  return { id, ...head };
+}
+/** Newest first. */
+export async function listBackups() {
+  const user = await signIn();
+  const { fs, db } = fb;
+  const snap = await fs.getDocsFromServer(fs.query(fs.collection(db, 'users', user.uid, 'backups'), fs.orderBy('createdAt', 'desc')));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+/** The backup text of one online backup. */
+export async function loadBackup(id) {
+  const user = await signIn();
+  const { fs, db } = fb;
+  const head = await fs.getDocFromServer(fs.doc(db, 'users', user.uid, 'backups', id));
+  if (!head.exists()) throw Object.assign(new Error('missing'), { code: 'not-found' });
+  let text = '';
+  for (let i = 0; i < (head.data().parts || 1); i++) {
+    const p = await fs.getDocFromServer(fs.doc(db, 'users', user.uid, 'backups', id, 'parts', String(i)));
+    text += p.data().data;
+  }
+  return text;
 }
 
 /** Has this account picked who it is in the group? */

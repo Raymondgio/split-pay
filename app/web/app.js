@@ -1,6 +1,6 @@
 import { loadCore, split, balances, balancesConverted } from './core.js';
 import { kvGet, kvPut, photoGet, photoPut, photoDel, photoAll, photoReplaceAll, compressImage, summaryImage, shareFile } from './media.js';
-import { sync, initSync, resume, warm, signIn, logIn, createAccount, resetPassword, signOut, schedulePush, fetchPhoto, shareGroup, inviteLink, joinGroup, claimName, addMeTo, claimedHere } from './sync.js';
+import { sync, initSync, start, refresh, warm, signIn, logIn, createAccount, resetPassword, signOut, schedulePush, fetchPhoto, backupOnline, listBackups, loadBackup, shareGroup, inviteLink, joinGroup, claimName, addMeTo, claimedHere } from './sync.js';
 
 // ------------------------------------------------------------ constants
 const APP_VERSION = '1.2.0';
@@ -28,7 +28,8 @@ const I = {
 // ---------------------------------------------------------------- state
 let S = null; // saved data
 const ui = { draft: null, locked: false, hiddenAt: 0, viewer: null, q: '', tot: {}, conv: {},
-  auth: { mode: 'login', email: '', password: '', password2: '', err: '', info: '', busy: false }, afterLogin: '' };
+  auth: { mode: 'login', email: '', password: '', password2: '', err: '', info: '', busy: false }, afterLogin: '',
+  bk: { busy: false, list: null, err: '' } };
 const $app = document.getElementById('app');
 
 async function saveQuiet() { await kvPut('state', S); }
@@ -214,14 +215,46 @@ const fab = (gid = '') => `<button class="fab" data-act="new-expense" data-gid="
 const topBack = (title, right = '<span style="width:28px"></span>', icon = I.back) =>
   `<div class="top center"><button class="icon-btn" data-act="back" aria-label="Back">${icon}</button><h1>${title}</h1>${right}</div>`;
 
+/** Step 2 after log-in on a phone with no data: type your name, or bring back an online backup. */
 function vOnboard() {
   const invited = location.hash.startsWith('#/join/');
-  return `<div class="page"><div style="height:18vh"></div>
+  if (ui.bk.list === null && !ui.bk.loading) {
+    ui.bk.loading = true;
+    listBackups().then((l) => { ui.bk.list = l; }).catch(() => { ui.bk.list = []; }).finally(() => { ui.bk.loading = false; render(); });
+  }
+  const latest = ui.bk.list?.[0];
+  return `<div class="page"><div style="height:12vh"></div>
     <h2 class="title">Welcome to<br><span class="pos">Split Pay</span></h2>
-    <p class="mut" style="margin:10px 0 26px">${invited ? 'A friend invited you to a group. First, type your name.' : 'Split costs with friends. No ads, no account, your data stays on this phone.'}</p>
-    <div class="lbl">Your name</div>
+    <p class="mut" style="margin:10px 0 22px">${invited ? 'A friend invited you to a group. First, type your name.' : 'Split costs with friends. No ads. Your data stays on this phone; only groups you share go online.'}</p>
+    ${latest ? `<div class="card"><b>You have an online backup</b><p class="hint" style="text-align:left;margin:4px 0 10px">${new Date(latest.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${latest.expenses ?? '?'} expenses · ${latest.groups ?? '?'} groups</p>
+      <button class="btn" data-act="restore-online" data-id="${esc(latest.id)}" ${ui.bk.busy ? 'disabled' : ''}>${ui.bk.busy ? 'Restoring…' : 'Restore it'}</button></div>
+      <div class="lbl" style="margin-top:18px">Or start fresh: your name</div>` : '<div class="lbl">Your name</div>'}
     <input class="input" id="ob-name" placeholder="e.g. Raymond" autocomplete="off" maxlength="30">
-    <div class="bottom"><button class="btn" data-act="onboard">Start</button></div></div>`;
+    <div class="bottom"><button class="btn ${latest ? 'ghost' : ''}" data-act="onboard">Start</button></div>
+    <p class="hint" style="margin-top:14px">Logged in as ${esc(sync.user?.email || '')} · <button class="link" data-act="sign-out">Log out</button></p></div>`;
+}
+/** Step 1: nobody may use the app without logging in. */
+function vGate() {
+  const invited = location.hash.startsWith('#/join/');
+  if (invited && !ui.gateSet) { ui.gateSet = true; ui.auth.mode = 'signup'; }
+  return `<div class="page"><div style="height:7vh"></div>
+    <div class="center"><img src="icons/icon.svg" alt="" width="64" height="64" style="border-radius:16px"></div>
+    <p class="mut center" style="margin:10px 0 4px">${invited ? 'A friend invited you to a shared group on Split Pay.' : 'Split costs with friends. No ads.'}</p>
+    ${authForm()}</div>`;
+}
+function vNoConnection() {
+  return `<div class="page"><div style="height:20vh"></div>
+    <h2 class="title center">No internet</h2>
+    <p class="mut center" style="margin:10px 0 22px">Split Pay needs the internet the first time, to log in. After that it also works offline.</p>
+    <button class="btn" data-act="reload">Try again</button></div>`;
+}
+function vOtherAccount() {
+  return `<div class="page"><div style="height:12vh"></div>
+    <h2 class="title">This phone has someone else's data</h2>
+    <p class="mut" style="margin:10px 0 22px">The expenses on this phone belong to a different account than ${esc(sync.user?.email || '')}. Log out so the owner can log in again, or erase this phone's data to use your account here.</p>
+    <button class="btn" data-act="sign-out">Log out</button>
+    <button class="btn danger" style="margin-top:12px" data-act="erase-local">Erase this phone's data</button>
+    <p class="hint" style="margin-top:12px">Erasing does not touch shared groups or online backups.</p></div>`;
 }
 
 function vLock() {
@@ -706,8 +739,12 @@ function vAccount() {
     <div class="lbl">Security</div>
     <button class="setrow" data-act="go" data-to="#/account/lock"><div><b>App lock</b><small>${S.settings.lock ? `On${S.settings.lock.bio ? ', with fingerprint' : ''}` : 'Off'}</small></div><span class="mut">›</span></button>
     <div class="lbl">Your data</div>
-    <button class="setrow" data-act="backup"><div><b>Back up</b><small>Save one file, e.g. to Google Drive</small></div><span class="pos">Save</span></button>
-    <button class="setrow" data-act="restore"><div><b>Restore</b><small>Replace everything here with a backup file</small></div><span class="pos">Open</span></button>
+    ${sync.user
+      ? `<button class="setrow" data-act="backup-online"><div><b>Back up online now</b><small>${S.settings.lastOnlineBackup ? `Last: ${new Date(S.settings.lastOnlineBackup).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · also automatic once a day` : 'To Firebase, under your account · also automatic once a day'}</small></div><span class="pos">${ui.bk.busy ? '…' : 'Back up'}</span></button>
+        <button class="setrow" data-act="open-backups"><div><b>Restore from online backup</b><small>Pick one of your last 5 online backups</small></div><span class="mut">›</span></button>`
+      : `<button class="setrow" data-act="need-login"><div><b>Online backup</b><small>Log in to back up to Firebase automatically every day</small></div><span class="pos">Log in</span></button>`}
+    <button class="setrow" data-act="backup"><div><b>Back up to a file</b><small>Save one file, e.g. to Google Drive</small></div><span class="pos">Save</span></button>
+    <button class="setrow" data-act="restore"><div><b>Restore from a file</b><small>Replace everything here with a backup file</small></div><span class="pos">Open</span></button>
     <input type="file" id="restore-file" accept="application/json,.json" hidden>
     <p class="hint" style="margin-top:22px">Split Pay ${APP_VERSION} · ${S.expenses.filter((e) => !e.deleted).length} expenses · ${realGroups().some((g) => g.shared) ? 'shared groups sync online, the rest stays on this device' : 'data stays on this device'}</p>
     </div>${tabs('account')}`;
@@ -754,6 +791,13 @@ function vLockSetup() {
 function render() {
   document.documentElement.dataset.theme = S?.settings?.theme || 'dark';
   document.querySelector('meta[name=theme-color]').content = S?.settings?.theme === 'light' ? '#F6F7F2' : '#0E0F11';
+  // Log-in first, for everyone.
+  if (!sync.ready) {
+    if (!ui.authFailed) { $app.innerHTML = '<div class="boot">Split Pay</div>'; return; }
+    if (!S?.sync?.uid) { $app.innerHTML = vNoConnection(); return; }
+    // Logged in before, but the log-in check cannot run (offline): carry on with this phone's data.
+  } else if (!sync.user) { $app.innerHTML = vGate(); return; }
+  else if (sync.otherAccount) { $app.innerHTML = vOtherAccount(); return; }
   if (!S) { $app.innerHTML = vOnboard(); return; }
   if (ui.locked) { $app.innerHTML = vLock(); document.getElementById('lock-pin')?.focus(); return; }
   const parts = location.hash.replace(/^#\/?/, '').split('/');
@@ -772,7 +816,7 @@ function render() {
   else if (parts[0] === 'friends') html = vFriends();
   else if (parts[0] === 'activity') html = vActivity();
   else if (parts[0] === 'account') {
-    html = parts[1] === 'rates' ? vRates() : parts[1] === 'categories' ? vCategories() : parts[1] === 'presets' ? vPresets() : parts[1] === 'lock' ? vLockSetup() : vAccount();
+    html = parts[1] === 'backups' ? vBackups() : parts[1] === 'rates' ? vRates() : parts[1] === 'categories' ? vCategories() : parts[1] === 'presets' ? vPresets() : parts[1] === 'lock' ? vLockSetup() : vAccount();
   } else {
     if (parts[0]) history.replaceState(null, '', '#/');
     html = vGroups();
@@ -823,6 +867,48 @@ function groupCsv(g) {
 }
 const fileSafe = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group';
 
+// ---------------------------------------------------------------- backup
+/** Everything on this phone (all groups, friends, settings and photos) as one text. */
+async function backupText() {
+  return JSON.stringify({ app: 'split-pay', version: 2, exportedAt: nowIso(), state: S, photos: await photoAll() });
+}
+const isBackup = (obj) => obj?.app === 'split-pay' && !!obj.state?.people && !!obj.state?.me;
+async function applyBackup(obj) {
+  if (!isBackup(obj)) throw Object.assign(new Error('not a backup'), { code: 'not-a-backup' });
+  S = migrate(obj.state);
+  if (S.settings.lock) S.settings.lock.bio = null; // fingerprint keys belong to one phone
+  if (sync.user) S.sync.uid = sync.user.uid; // the restored data now belongs to whoever is logged in
+  await photoReplaceAll(obj.photos || {});
+  await saveState();
+  if (!location.hash.startsWith('#/join/')) history.replaceState(null, '', '#/');
+  refresh();
+  render();
+}
+async function doOnlineBackup() {
+  const text = await backupText();
+  await backupOnline(text, { expenses: S.expenses.filter((e) => !e.deleted).length, groups: realGroups().length, app: APP_VERSION });
+  S.settings.lastOnlineBackup = nowIso();
+  await saveQuiet();
+}
+/** Once a day, when logged in: back up online by itself. */
+async function autoBackup() {
+  if (!S || !sync.user) return;
+  if (!S.expenses.length && !realGroups().length) return; // an empty phone must never push out good backups
+  const last = S.settings.lastOnlineBackup;
+  if (last && Date.now() - new Date(last).getTime() < 24 * 3600 * 1000) return;
+  try { await doOnlineBackup(); render(); } catch { /* try again next time */ }
+}
+function vBackups() {
+  const when = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const list = ui.bk.list;
+  const rows = !list ? `<div class="hint">${ui.bk.err ? esc(ui.bk.err) : 'Loading…'}</div>`
+    : !list.length ? '<div class="empty"><b>No online backups yet</b>Tap “Back up online now” in Account.</div>'
+      : list.map((b) => `<div class="setrow"><div><b>${when(b.createdAt)}</b><small>${b.expenses ?? '?'} expenses · ${b.groups ?? '?'} groups · ${Math.max(1, Math.round(b.size / 1024))} KB</small></div><button class="chip pri" data-act="restore-online" data-id="${esc(b.id)}" ${ui.bk.busy ? 'disabled' : ''}>Restore</button></div>`).join('');
+  return `<div class="page sheet">${topBack('Online backups')}
+    <p class="hint" style="text-align:left;margin:6px 0 12px">Saved in Firebase under your account (${esc(sync.user?.email || '')}). Only you can open them. The newest 5 are kept.</p>
+    ${rows}</div>`;
+}
+
 // ---------------------------------------------------------------- lock
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -852,8 +938,20 @@ const actions = {
     if (!name) return toast('Please type your name.');
     const me = { id: uid(), name, color: '#C8F135', updatedAt: nowIso() };
     S = migrate({ version: 2, me: me.id, people: [me], groups: [], expenses: [], payments: [], activity: [], settings: { theme: 'dark', currency: 'IDR' } });
+    S.sync.uid = sync.user?.uid || null;
     navigator.storage?.persist?.();
     await commit();
+    refresh();
+  },
+  reload: () => location.reload(),
+  'erase-local': async () => {
+    if (!confirm("Erase all Split Pay data on this phone? The other account's shared groups and online backups are not touched.")) return;
+    await kvPut('state', null);
+    await photoReplaceAll({});
+    S = null; ui.locked = false; ui.bk.list = null;
+    refresh();
+    history.replaceState(null, '', '#/');
+    render();
   },
   unlock: async () => {
     const pin = document.getElementById('lock-pin').value;
@@ -1084,12 +1182,34 @@ const actions = {
   },
   'toggle-theme': async () => { S.settings.theme = S.settings.theme === 'light' ? 'dark' : 'light'; await commit(); },
   backup: async () => {
-    const photos = await photoAll();
-    const blob = new Blob([JSON.stringify({ app: 'split-pay', version: 2, exportedAt: nowIso(), state: S, photos })], { type: 'application/json' });
+    const blob = new Blob([await backupText()], { type: 'application/json' });
     const r = await shareFile(blob, `split-pay-backup-${today()}.json`, 'application/json');
     if (r === 'downloaded') toast('Backup file saved to Downloads');
   },
   restore: () => document.getElementById('restore-file').click(),
+  'backup-online': async () => {
+    if (ui.bk.busy) return;
+    ui.bk.busy = true; render();
+    try { await doOnlineBackup(); toast('Backed up online'); }
+    catch (e) { if (e.code === 'need-login') { ui.bk.busy = false; return actions['need-login'](); } toast(`Online backup failed: ${syncErrorText(e.code || String(e))}`); }
+    ui.bk.busy = false; render();
+  },
+  'open-backups': async () => {
+    ui.bk.list = null; ui.bk.err = ''; go('#/account/backups');
+    try { ui.bk.list = await listBackups(); } catch (e) { ui.bk.err = syncErrorText(e.code || String(e)); }
+    render();
+  },
+  'restore-online': async (d) => {
+    const b = ui.bk.list?.find((x) => x.id === d.id); if (!b) return;
+    if (!confirm(`Replace all data on this phone with the online backup from ${new Date(b.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}?`)) return;
+    ui.bk.busy = true; render();
+    try {
+      const obj = JSON.parse(await loadBackup(b.id));
+      await applyBackup(obj);
+      toast('Backup restored');
+    } catch (e) { toast(`Restore failed: ${syncErrorText(e.code || String(e))}`); }
+    ui.bk.busy = false; render();
+  },
 
   // ---- sync (phase 7)
   'need-login': () => {
@@ -1113,13 +1233,14 @@ const actions = {
         if (a.mode === 'signup') await createAccount(a.email, a.password); else await logIn(a.email, a.password);
         Object.assign(a, { password: '', password2: '' });
         toast(a.mode === 'signup' ? 'Account created' : 'Logged in');
+        setTimeout(autoBackup, 3000);
       }
     } catch (e) { sync.error = ''; a.err = syncErrorText.call(null, e.code || String(e)); }
     a.busy = false; render();
   },
   'sign-out': async () => {
-    if (!confirm('Log out? Shared groups stay on this phone but stop syncing until you log in again.')) return;
-    await signOut(); render(); toast('Logged out');
+    if (!confirm('Log out? You will need your email and password to open Split Pay again. Your data stays on this phone.')) return;
+    await signOut(); ui.bk.list = null; render(); toast('Logged out');
   },
   'share-group': async (d) => {
     const g = group(d.gid);
@@ -1210,14 +1331,9 @@ document.addEventListener('change', async (e) => {
   if (e.target.id !== 'restore-file' || !e.target.files[0]) return;
   try {
     const obj = JSON.parse(await e.target.files[0].text());
-    if (obj.app !== 'split-pay' || !obj.state?.people || !obj.state?.me) throw new Error('not a backup');
+    if (!isBackup(obj)) throw new Error('not a backup');
     if (!confirm(`Replace all data on this device with the backup from ${String(obj.exportedAt).slice(0, 10)}?`)) return;
-    S = migrate(obj.state);
-    if (S.settings.lock) S.settings.lock.bio = null; // fingerprint keys belong to one phone
-    await photoReplaceAll(obj.photos || {});
-    await saveState();
-    history.replaceState(null, '', '#/');
-    render();
+    await applyBackup(obj);
     toast('Backup restored');
   } catch { toast('That file is not a Split Pay backup.'); }
   e.target.value = '';
@@ -1239,9 +1355,9 @@ document.addEventListener('keydown', (e) => {
       ui.locked = !!S.settings.lock;
       if (runRepeats()) await saveState();
     }
-    render();
     initSync({ getS: () => S, saveQuiet, rerender: (soft) => (soft ? softRender() : render()), toast, log, nm, nowIso });
-    resume().then(render);
+    render(); // shows "Split Pay" while the log-in check runs
+    start().catch(() => { ui.authFailed = true; }).then(() => { render(); autoBackup(); });
   } catch (err) {
     $app.innerHTML = `<div class="page"><div class="empty"><b>Split Pay could not start</b>${esc(err.message || err)}</div></div>`;
   }
