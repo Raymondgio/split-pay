@@ -1,4 +1,4 @@
-// Sync with friends through Firebase (phase 7): Google sign-in + Firestore.
+// Sync with friends through Firebase (phase 7): email + password log-in, and Firestore.
 // Firebase is loaded only when needed, so the app still opens instantly and offline.
 import { firebaseConfig } from './firebase-config.js';
 import { applyGroup, applyItem, dirty, clean, groupFields, groupSig, peopleMap, renamePerson, rowHas, inviteCode } from './syncmerge.js';
@@ -49,13 +49,24 @@ export async function resume() {
   try { await load(); } catch { sync.error = 'offline'; }
 }
 
+/** Throws { code: 'need-login' } when nobody is logged in on this phone. */
 export async function signIn() {
-  const { auth, au } = await load();
+  await load();
   if (sync.user) return sync.user;
-  const provider = new auth.GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  await auth.signInWithPopup(au, provider);
-  return sync.user;
+  throw Object.assign(new Error('Log in first'), { code: 'need-login' });
+}
+const cleanEmail = (e) => String(e || '').trim().toLowerCase();
+export async function logIn(email, password) {
+  const { auth, au } = await load();
+  await auth.signInWithEmailAndPassword(au, cleanEmail(email), password);
+}
+export async function createAccount(email, password) {
+  const { auth, au } = await load();
+  await auth.createUserWithEmailAndPassword(au, cleanEmail(email), password);
+}
+export async function resetPassword(email) {
+  const { auth, au } = await load();
+  await auth.sendPasswordResetEmail(au, cleanEmail(email));
 }
 export async function signOut() {
   const { auth, au } = await load();
@@ -94,6 +105,7 @@ async function onUser() {
     if (touched) { H.saveQuiet(); H.rerender(true); }
   }, (err) => { sync.error = err.code || String(err); H.rerender(true); });
   schedulePush();
+  H.rerender(true);
 }
 
 function watchItems(gid) {

@@ -1,6 +1,6 @@
 import { loadCore, split, balances, balancesConverted } from './core.js';
 import { kvGet, kvPut, photoGet, photoPut, photoDel, photoAll, photoReplaceAll, compressImage, summaryImage, shareFile } from './media.js';
-import { sync, initSync, resume, warm, signIn, signOut, schedulePush, fetchPhoto, shareGroup, inviteLink, joinGroup, claimName, addMeTo, claimedHere } from './sync.js';
+import { sync, initSync, resume, warm, signIn, logIn, createAccount, resetPassword, signOut, schedulePush, fetchPhoto, shareGroup, inviteLink, joinGroup, claimName, addMeTo, claimedHere } from './sync.js';
 
 // ------------------------------------------------------------ constants
 const APP_VERSION = '1.2.0';
@@ -27,7 +27,8 @@ const I = {
 
 // ---------------------------------------------------------------- state
 let S = null; // saved data
-const ui = { draft: null, locked: false, hiddenAt: 0, viewer: null, q: '', tot: {}, conv: {} };
+const ui = { draft: null, locked: false, hiddenAt: 0, viewer: null, q: '', tot: {}, conv: {},
+  auth: { mode: 'login', email: '', password: '', password2: '', err: '', info: '', busy: false }, afterLogin: '' };
 const $app = document.getElementById('app');
 
 async function saveQuiet() { await kvPut('state', S); }
@@ -381,14 +382,41 @@ function vShareBox(g) {
   warm();
   if (!g.shared) {
     return `<div class="lbl">Share with friends</div>
-      <div class="card"><p class="hint" style="text-align:left;margin:0 0 10px">Friends get a link, sign in with Google, pick their name, and then everyone adds expenses to this group from their own phone. The group is stored online (Google Firebase); other groups stay only on this phone.</p>
-      <button class="btn" data-act="share-group" data-gid="${g.id}" ${sync.busy ? 'disabled' : ''}>${sync.busy === 'share' ? 'Sharing…' : 'Share this group'}</button></div>`;
+      <div class="card"><p class="hint" style="text-align:left;margin:0 0 10px">Friends get a link, log in with their email and a password, pick their name, and then everyone adds expenses to this group from their own phone. The group is stored online (Google Firebase); other groups stay only on this phone.</p>
+      ${sync.user
+        ? `<button class="btn" data-act="share-group" data-gid="${g.id}" ${sync.busy ? 'disabled' : ''}>${sync.busy === 'share' ? 'Sharing…' : 'Share this group'}</button>`
+        : `<button class="btn" data-act="need-login">Log in to share</button>`}</div>`;
   }
   const joined = g.memberIds.filter((id) => g.uids?.[id]).length;
   return `<div class="lbl">Shared group</div>
     <div class="card"><p class="hint" style="text-align:left;margin:0 0 10px">${joined} of ${g.memberIds.length} people have joined. ${g.memberIds.map((id) => `${esc(nm(id))} ${g.uids?.[id] ? '✓' : '…'}`).join(' · ')}</p>
     ${g.inviteCode ? `<button class="btn" data-act="send-invite" data-gid="${g.id}">Send invite link</button>` : ''}
-    ${sync.user ? '' : `<button class="btn ghost" style="margin-top:8px" data-act="sign-in">Sign in to keep this group in sync</button>`}</div>`;
+    ${sync.user ? '' : `<button class="btn ghost" style="margin-top:8px" data-act="need-login">Log in to keep this group in sync</button>`}</div>`;
+}
+
+/** Log in / create account / forgot password. Used on its own page and inside the join screen. */
+function authForm() {
+  const a = ui.auth, m = a.mode;
+  const title = m === 'signup' ? 'Create an account' : m === 'reset' ? 'Reset your password' : 'Log in';
+  const field = (k, label, type, auto, ph) => `<div class="lbl">${label}</div><input class="input" id="auth-${k}" data-in="auth" data-k="${k}" type="${type}" value="${esc(a[k])}" autocomplete="${auto}" placeholder="${ph}" ${k === 'email' ? 'inputmode="email" autocapitalize="off"' : ''}>`;
+  return `<h2 class="title" style="font-size:24px">${title}</h2>
+    ${m === 'signup' ? '<p class="mut" style="margin:6px 0 0">Only needed to share groups. Use any email you can open, so you can reset the password later.</p>' : ''}
+    ${m === 'reset' ? '<p class="mut" style="margin:6px 0 0">We will email you a link to choose a new password.</p>' : ''}
+    ${field('email', 'Email', 'email', 'email', 'you@example.com')}
+    ${m !== 'reset' ? field('password', 'Password', 'password', m === 'signup' ? 'new-password' : 'current-password', m === 'signup' ? 'At least 6 characters' : '') : ''}
+    ${m === 'signup' ? field('password2', 'Type the password again', 'password', 'new-password', '') : ''}
+    <div class="hint err" id="auth-err" style="margin-top:8px;text-align:left">${esc(a.err)}</div>
+    ${a.info ? `<div class="hint pos" style="margin-top:8px;text-align:left">${esc(a.info)}</div>` : ''}
+    <button class="btn" style="margin-top:12px" data-act="auth-submit" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Please wait…' : m === 'signup' ? 'Create account' : m === 'reset' ? 'Send reset link' : 'Log in'}</button>
+    <div class="center" style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
+      ${m !== 'login' ? '<button class="link" data-act="auth-mode" data-m="login">I already have an account: log in</button>' : '<button class="link" data-act="auth-mode" data-m="signup">New here? Create an account</button>'}
+      ${m === 'login' ? '<button class="link" data-act="auth-mode" data-m="reset">Forgot password?</button>' : ''}
+    </div>`;
+}
+function vLogin() {
+  if (sync.user) { setTimeout(() => { history.replaceState(null, '', ui.afterLogin || '#/account'); render(); }, 0); return '<div class="page"></div>'; }
+  warm();
+  return `<div class="page sheet">${topBack('Account')}${authForm()}</div>`;
 }
 
 function vJoin(gid, code) {
@@ -400,14 +428,13 @@ function vJoin(gid, code) {
     setTimeout(() => actions['join-retry']({ gid, code }), 0);
   }
   if (!sync.user) {
-    return `${head}<div style="height:6vh"></div><h2 class="title">You're invited</h2>
-      <p class="mut" style="margin:10px 0 22px">Sign in with Google so Split Pay knows it's you. Your Google account is only used to see and add expenses in groups you join.</p>
-      <button class="btn" data-act="join-sign-in" data-gid="${gid}" data-code="${esc(code)}" ${sync.busy ? 'disabled' : ''}>${sync.busy ? 'Signing in…' : 'Sign in with Google'}</button>
-      ${sync.error ? `<div class="hint err" style="margin-top:10px">${esc(syncErrorText())}</div>` : ''}</div>`;
+    if (!ui.joinFormSet) { ui.joinFormSet = true; ui.auth.mode = 'signup'; }
+    return `${head}<p class="mut" style="margin:6px 0 4px">You're invited to a shared group. Create an account (or log in) so Split Pay knows it's you.</p>
+      ${authForm()}</div>`;
   }
   if (!g) {
     return `${head}<div style="height:6vh"></div><h2 class="title">Joining…</h2>
-      <p class="mut" style="margin:10px 0 22px">Signed in as ${esc(sync.user.email)}. Getting the group.</p>
+      <p class="mut" style="margin:10px 0 22px">Logged in as ${esc(sync.user.email)}. Getting the group.</p>
       ${sync.error ? `<div class="hint err">${esc(syncErrorText())}</div><button class="btn" style="margin-top:12px" data-act="join-retry" data-gid="${gid}" data-code="${esc(code)}">Try again</button>` : ''}</div>`;
   }
   if (claimedHere(g)) { setTimeout(() => { history.replaceState(null, '', `#/g/${g.id}`); render(); }, 0); return head + '</div>'; }
@@ -417,12 +444,16 @@ function vJoin(gid, code) {
     ${open.map((id) => `<button class="person" data-act="claim" data-gid="${g.id}" data-id="${id}">${av(id)}<div class="n">I am ${esc(person(id).name)}</div><span class="pos">›</span></button>`).join('')}
     <button class="btn ghost" style="margin-top:16px" data-act="add-me" data-gid="${g.id}">I'm not on the list, add me as ${esc(person(S.me).name)}</button></div>`;
 }
-function syncErrorText() {
-  const e = sync.error;
+function syncErrorText(code) {
+  const e = code || sync.error;
   if (e === 'not-found') return 'This invite link does not work any more. Ask for a new one.';
   if (e === 'permission-denied') return 'This invite link was not accepted. Ask your friend to send it again.';
-  if (e === 'auth/popup-blocked') return 'The sign-in window was blocked. Allow pop-ups and try again.';
-  if (e === 'auth/popup-closed-by-user' || e === 'auth/cancelled-popup-request') return 'Sign-in was cancelled.';
+  if (e === 'need-login') return 'Log in first.';
+  if (e === 'auth/invalid-credential' || e === 'auth/wrong-password' || e === 'auth/user-not-found') return 'Wrong email or password.';
+  if (e === 'auth/invalid-email' || e === 'auth/missing-email') return 'That email address does not look right.';
+  if (e === 'auth/email-already-in-use') return 'There is already an account with this email. Log in instead.';
+  if (e === 'auth/weak-password' || e === 'auth/missing-password') return 'Use a password of at least 6 characters.';
+  if (e === 'auth/too-many-requests') return 'Too many tries. Wait a few minutes, or reset your password.';
   if (e === 'offline' || e === 'unavailable' || e === 'auth/network-request-failed') return 'No internet connection.';
   return `Something went wrong (${e}).`;
 }
@@ -670,8 +701,8 @@ function vAccount() {
     <button class="setrow" data-act="go" data-to="#/account/presets"><div><b>People presets</b><small>${S.settings.presets.length ? `${S.settings.presets.length} saved` : 'Save one from “Adjust split”'}</small></div><span class="mut">›</span></button>
     <div class="lbl">Sync with friends</div>
     ${(warm(), sync.user)
-      ? `<div class="setrow"><div><b>Signed in with Google</b><small>${esc(sync.user.email)} · ${realGroups().filter((g) => g.shared).length} shared group(s)</small></div><button class="chip" data-act="sign-out">Sign out</button></div>`
-      : `<button class="setrow" data-act="sign-in"><div><b>Sign in with Google</b><small>${S.sync?.uid ? 'Signed out. Sign in again to keep shared groups in sync' : 'Only needed for groups you share. Share one from its settings'}</small></div><span class="pos">${sync.busy === 'sign-in' ? '…' : 'Sign in'}</span></button>`}
+      ? `<div class="setrow"><div><b>Logged in</b><small>${esc(sync.user.email)} · ${realGroups().filter((g) => g.shared).length} shared group(s)</small></div><button class="chip" data-act="sign-out">Log out</button></div>`
+      : `<button class="setrow" data-act="need-login"><div><b>Log in or create an account</b><small>${S.sync?.uid ? 'Logged out. Log in again to keep shared groups in sync' : 'Only needed for groups you share. Share one from its settings'}</small></div><span class="pos">Log in</span></button>`}
     <div class="lbl">Security</div>
     <button class="setrow" data-act="go" data-to="#/account/lock"><div><b>App lock</b><small>${S.settings.lock ? `On${S.settings.lock.bio ? ', with fingerprint' : ''}` : 'Off'}</small></div><span class="mut">›</span></button>
     <div class="lbl">Your data</div>
@@ -736,6 +767,7 @@ function render() {
     html = parts[2] === 'bal' ? vBalances(g) : parts[2] === 'totals' ? vTotals(g)
       : parts[2] === 'set' && !g.nongroup ? vGroupSettings(g) : parts[2] === 'wb' && !g.nongroup ? vWhiteboard(g) : vGroup(g);
   } else if (parts[0] === 'join' && parts[1] && parts[2]) html = vJoin(parts[1], parts[2]);
+  else if (parts[0] === 'login') html = vLogin();
   else if (parts[0] === 'search') html = vSearch();
   else if (parts[0] === 'friends') html = vFriends();
   else if (parts[0] === 'activity') html = vActivity();
@@ -1060,14 +1092,34 @@ const actions = {
   restore: () => document.getElementById('restore-file').click(),
 
   // ---- sync (phase 7)
-  'sign-in': async () => {
-    sync.busy = 'sign-in'; sync.error = ''; render();
-    try { await signIn(); toast('Signed in'); } catch (e) { sync.error = e.code || String(e); toast(syncErrorText()); }
-    sync.busy = ''; render();
+  'need-login': () => {
+    ui.afterLogin = location.hash.startsWith('#/login') ? '#/account' : location.hash || '#/';
+    Object.assign(ui.auth, { mode: 'login', err: '', info: '', password: '', password2: '' });
+    go('#/login');
+  },
+  'auth-mode': (d) => { Object.assign(ui.auth, { mode: d.m, err: '', info: '', password: '', password2: '' }); render(); },
+  'auth-submit': async () => {
+    const a = ui.auth;
+    if (a.busy) return;
+    a.err = ''; a.info = '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim())) a.err = 'Type your email address.';
+    else if (a.mode !== 'reset' && a.password.length < 6) a.err = 'Use a password of at least 6 characters.';
+    else if (a.mode === 'signup' && a.password !== a.password2) a.err = 'The two passwords are different.';
+    if (a.err) return render();
+    a.busy = true; render();
+    try {
+      if (a.mode === 'reset') { await resetPassword(a.email); a.info = 'If this email has an account, a reset link is on its way. Check your inbox (and spam).'; a.mode = 'login'; }
+      else {
+        if (a.mode === 'signup') await createAccount(a.email, a.password); else await logIn(a.email, a.password);
+        Object.assign(a, { password: '', password2: '' });
+        toast(a.mode === 'signup' ? 'Account created' : 'Logged in');
+      }
+    } catch (e) { sync.error = ''; a.err = syncErrorText.call(null, e.code || String(e)); }
+    a.busy = false; render();
   },
   'sign-out': async () => {
-    if (!confirm('Sign out? Shared groups stay on this phone but stop syncing until you sign in again.')) return;
-    await signOut(); render(); toast('Signed out');
+    if (!confirm('Log out? Shared groups stay on this phone but stop syncing until you log in again.')) return;
+    await signOut(); render(); toast('Logged out');
   },
   'share-group': async (d) => {
     const g = group(d.gid);
@@ -1078,18 +1130,15 @@ const actions = {
       log(`You shared the group “${g.name}”.`);
       await saveState();
       toast('Group shared. Now send the invite link.');
-    } catch (e) { sync.error = e.code || String(e); toast(syncErrorText()); }
+    } catch (e) {
+      if (e.code === 'need-login') { sync.busy = ''; return actions['need-login'](); }
+      sync.error = e.code || String(e); toast(syncErrorText());
+    }
     sync.busy = ''; render();
   },
   'send-invite': (d) => {
     const g = group(d.gid);
     shareText(`Join “${g.name}” on Split Pay, so we can all add expenses: ${inviteLink(g)}`);
-  },
-  'join-sign-in': async (d) => {
-    sync.busy = 'join'; sync.error = ''; render();
-    try { await signIn(); await joinGroup(d.gid, d.code); }
-    catch (e) { sync.error = e.code || String(e); }
-    sync.busy = ''; render();
   },
   'join-retry': async (d) => {
     sync.error = ''; render();
@@ -1143,6 +1192,7 @@ const inputs = {
   rate: (v, ds) => { S.settings.rates[ds.c] = v.trim(); saveState(); },
   'me-name': (v) => { if (v.trim()) { person(S.me).name = v.trim(); saveState(); } },
   'set-cur': (v) => { S.settings.currency = v; saveState(); },
+  auth: (v, ds) => { ui.auth[ds.k] = v; },
 };
 document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-in]');
@@ -1176,6 +1226,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (e.target.id === 'ob-name') actions.onboard();
   if (e.target.id === 'lock-pin') actions.unlock();
+  if (e.target.id?.startsWith('auth-')) actions['auth-submit']();
 });
 
 // ------------------------------------------------------------------ boot

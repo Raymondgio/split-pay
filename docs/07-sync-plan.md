@@ -44,6 +44,8 @@ flowchart LR
 
 Status 17 Nov 2026: 7.1–7.5 built in version 1.2. Rules from `firestore.rules` published; checked that a visitor without sign-in cannot read or write. The merge rules were tested by simulating two phones (share → join → "I am Juju" → both phones end with identical rows). Not yet tested: real sign-in with two Google accounts (7.6).
 
+20 Nov 2026: log-in changed from Google sign-in to **email + password** (Raymond's choice). Firebase Email/Password provider turned on. Screens: Log in, Create account, Forgot password (Firebase emails a reset link). The join screen shows "Create an account" first. Google provider is still on in the console but no longer used by the app.
+
 20 Nov 2026: receipt photos of shared groups are shared too. Each photo is shrunk to a small JPEG (about 70–130 KB, max 1000 px) and stored in Firestore at `groups/{groupId}/photos/{photoId}`, members only (rules updated and published). Every phone downloads a photo once and keeps it, so it also shows offline. No Cloud Storage, so no paid plan. Free 1 GB ≈ 8,000+ receipts.
 
 Known limits:
